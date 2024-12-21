@@ -2,6 +2,7 @@
 "use client";
 
 import React, { useState, ChangeEvent, FormEvent } from 'react';
+import { Wallet, ArrowRightLeft, Edit2, Trash2 } from 'lucide-react';
 import {
   Transaction,
   TransactionType,
@@ -16,8 +17,10 @@ import {
 const FinancialTracker: React.FC = () => {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [currentMonth, setCurrentMonth] = useState<string>(new Date().toISOString().slice(0, 7));
-  
-  const [formData, setFormData] = useState<FormData>({
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
+
+  const defaultFormData: FormData = {
     date: '',
     type: 'expense',
     category: '',
@@ -27,9 +30,11 @@ const FinancialTracker: React.FC = () => {
     creditCard: '',
     person: '',
     description: ''
-  });
+  };
 
-  // Configuration data
+  const [formData, setFormData] = useState<FormData>(defaultFormData);
+
+  // Configuration data remains the same...
   const transactionTypes: TransactionTypeOption[] = [
     { id: 'expense', name: 'Regular Expense' },
     { id: 'lent', name: 'Money Lent' },
@@ -80,6 +85,50 @@ const FinancialTracker: React.FC = () => {
     }));
   };
 
+  const handleEdit = (transaction: Transaction) => {
+    setEditingTransaction(transaction);
+    setFormData({
+      date: transaction.date,
+      type: transaction.type,
+      category: transaction.category,
+      amount: transaction.amount,
+      paymentMethod: transaction.paymentMethod,
+      bankAccount: transaction.bankAccount || '',
+      creditCard: transaction.creditCard || '',
+      person: transaction.person || '',
+      description: transaction.description
+    });
+    setIsEditing(true);
+  };
+
+  const handleDelete = (id: number) => {
+    if (window.confirm('Are you sure you want to delete this transaction?')) {
+      setTransactions(prev => prev.filter(t => t.id !== id));
+    }
+  };
+
+  const handleUpdate = (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!editingTransaction) return;
+
+    setTransactions(prev => prev.map(t =>
+      t.id === editingTransaction.id
+        ? { ...t, ...formData, timestamp: new Date().toISOString() }
+        : t
+    ));
+
+    setFormData(defaultFormData);
+    setEditingTransaction(null);
+    setIsEditing(false);
+  };
+
+  const handleCancel = () => {
+    setFormData(defaultFormData);
+    setEditingTransaction(null);
+    setIsEditing(false);
+  };
+
+  // Rest of the existing functions...
   const getMonthlyStats = () => {
     const monthlyTransactions = transactions.filter(t => t.date.startsWith(currentMonth));
     return {
@@ -103,23 +152,10 @@ const FinancialTracker: React.FC = () => {
       timestamp: new Date().toISOString()
     };
     setTransactions(prev => [...prev, newTransaction]);
-    
-    // Reset form
-    setFormData({
-      date: '',
-      type: 'expense',
-      category: '',
-      amount: '',
-      paymentMethod: 'cash',
-      bankAccount: '',
-      creditCard: '',
-      person: '',
-      description: ''
-    });
+    setFormData(defaultFormData);
   };
 
   const stats = getMonthlyStats();
-
   return (
     <div className="max-w-4xl mx-auto p-6 bg-white rounded-lg shadow">
       <div className="mb-6">
@@ -154,7 +190,7 @@ const FinancialTracker: React.FC = () => {
       </div>
 
       {/* Transaction Form */}
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <form onSubmit={isEditing ? handleUpdate : handleSubmit} className="space-y-4">
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium mb-1">Date</label>
@@ -291,13 +327,23 @@ const FinancialTracker: React.FC = () => {
             placeholder="Enter description"
           />
         </div>
-
-        <button
-          type="submit"
-          className="w-full bg-blue-500 text-white p-2 rounded-lg hover:bg-blue-600"
-        >
-          Add Transaction
-        </button>
+        <div className="flex gap-4">
+          <button
+            type="submit"
+            className="flex-1 bg-blue-500 text-white p-2 rounded-lg hover:bg-blue-600"
+          >
+            {isEditing ? 'Update Transaction' : 'Add Transaction'}
+          </button>
+          {isEditing && (
+            <button
+              type="button"
+              onClick={handleCancel}
+              className="flex-1 bg-gray-500 text-white p-2 rounded-lg hover:bg-gray-600"
+            >
+              Cancel
+            </button>
+          )}
+        </div>
       </form>
 
       {/* Transactions List */}
@@ -314,6 +360,7 @@ const FinancialTracker: React.FC = () => {
                 <th className="p-2 text-left border">Payment</th>
                 <th className="p-2 text-left border">Person</th>
                 <th className="p-2 text-left border">Description</th>
+                <th className="p-2 text-left border">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -321,7 +368,7 @@ const FinancialTracker: React.FC = () => {
                 .filter(t => t.date.startsWith(currentMonth))
                 .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
                 .map(transaction => (
-                  <tr key={transaction.id}>
+                  <tr key={transaction.id} className={editingTransaction?.id === transaction.id ? 'bg-blue-50' : ''}>
                     <td className="p-2 border">{transaction.date}</td>
                     <td className="p-2 border">{transactionTypes.find(t => t.id === transaction.type)?.name}</td>
                     <td className="p-2 border">{transaction.category}</td>
@@ -332,6 +379,24 @@ const FinancialTracker: React.FC = () => {
                     </td>
                     <td className="p-2 border">{transaction.person || '-'}</td>
                     <td className="p-2 border">{transaction.description}</td>
+                    <td className="p-2 border">
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleEdit(transaction)}
+                          className="p-1 text-blue-600 hover:text-blue-800"
+                          title="Edit"
+                        >
+                          <Edit2 size={16} />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(transaction.id)}
+                          className="p-1 text-red-600 hover:text-red-800"
+                          title="Delete"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
             </tbody>
