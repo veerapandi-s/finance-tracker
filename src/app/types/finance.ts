@@ -14,7 +14,7 @@ export interface Transaction {
     timestamp: string;
   }
   
-  export type TransactionType = 'expense' | 'lent' | 'borrowed' | 'received' | 'reimbursement' | 'shared';
+  export type TransactionType = 'expense' | 'lent' | 'borrowed' | 'received' | 'reimbursement' | 'shared' | 'salary' | 'investment' | 'other_income';
   export type PaymentMethod = 'cash' | 'bank' | 'credit' | 'upi';
   
   export interface TransactionTypeOption {

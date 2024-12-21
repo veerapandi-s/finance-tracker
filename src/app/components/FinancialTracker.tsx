@@ -1,12 +1,11 @@
 // app/components/FinancialTracker.tsx
 "use client";
 
-import React, { useState, ChangeEvent, FormEvent } from 'react';
-import { Wallet, ArrowRightLeft, Edit2, Trash2 } from 'lucide-react';
+import React, { useState, ChangeEvent, FormEvent, useEffect } from 'react';
+import { Edit2, Trash2 } from 'lucide-react';
 import {
   Transaction,
   TransactionType,
-  PaymentMethod,
   TransactionTypeOption,
   PaymentMethodOption,
   BankAccount,
@@ -16,10 +15,11 @@ import {
 
 const FinancialTracker: React.FC = () => {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [currentMonth, setCurrentMonth] = useState<string>(new Date().toISOString().slice(0, 7));
+  const [currentMonth, setCurrentMonth] = useState(new Date().toISOString().slice(0, 7));
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [isEditing, setIsEditing] = useState(false);
-
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
   const defaultFormData: FormData = {
     date: '',
     type: 'expense',
@@ -34,12 +34,13 @@ const FinancialTracker: React.FC = () => {
 
   const [formData, setFormData] = useState<FormData>(defaultFormData);
 
-  // Configuration data remains the same...
   const transactionTypes: TransactionTypeOption[] = [
     { id: 'expense', name: 'Regular Expense' },
+    { id: 'salary', name: 'Salary Income' },
+    { id: 'investment', name: 'Investment Income' },
+    { id: 'other_income', name: 'Other Income' },
     { id: 'lent', name: 'Money Lent' },
     { id: 'borrowed', name: 'Money Borrowed' },
-    { id: 'received', name: 'Money Received' },
     { id: 'reimbursement', name: 'Office Reimbursement' },
     { id: 'shared', name: 'Shared Expense' }
   ];
@@ -57,6 +58,18 @@ const FinancialTracker: React.FC = () => {
   ];
 
   const categories: string[] = [
+
+    // Income Categories
+    'Monthly Salary',
+    'Bonus',
+    'Stock Dividends',
+    'Stock Sale Gains',
+    'Mutual Fund Returns',
+    'Interest Income',
+    'Rental Income',
+    'Freelance Income',
+
+    // Expense Categories
     'Food & Groceries',
     'Transportation',
     'Shopping',
@@ -69,7 +82,6 @@ const FinancialTracker: React.FC = () => {
     'Credit Card Bill',
     'Others'
   ];
-
   const paymentMethods: PaymentMethodOption[] = [
     { id: 'cash', name: 'Cash' },
     { id: 'bank', name: 'Bank Transfer' },
@@ -101,26 +113,88 @@ const FinancialTracker: React.FC = () => {
     setIsEditing(true);
   };
 
-  const handleDelete = (id: number) => {
-    if (window.confirm('Are you sure you want to delete this transaction?')) {
-      setTransactions(prev => prev.filter(t => t.id !== id));
+  const handleDelete = async (id: number) => {
+    if (!window.confirm('Are you sure you want to delete this transaction?')) return;
+
+    setIsLoading(true);
+    setError('');
+
+    try {
+      const response = await fetch(`/api/transactions/${id}`, {
+        method: 'DELETE'
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to delete transaction');
+      }
+
+      // After successful deletion, fetch fresh data
+      await fetchTransactions();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete transaction');
+      console.error(err);
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const handleUpdate = (e: FormEvent<HTMLFormElement>) => {
+  const handleUpdate = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!editingTransaction) return;
+    setIsLoading(true);
+    setError('');
 
-    setTransactions(prev => prev.map(t =>
-      t.id === editingTransaction.id
-        ? { ...t, ...formData, timestamp: new Date().toISOString() }
-        : t
-    ));
+    try {
+      const response = await fetch(`/api/transactions/${editingTransaction.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(formData)
+      });
 
-    setFormData(defaultFormData);
-    setEditingTransaction(null);
-    setIsEditing(false);
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to update transaction');
+      }
+
+      // After successful update, fetch fresh data
+      await fetchTransactions();
+      setFormData(defaultFormData);
+      setEditingTransaction(null);
+      setIsEditing(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update transaction');
+      console.error(err);
+    } finally {
+      setIsLoading(false);
+    }
   };
+
+  const fetchTransactions = async () => {
+    if (!currentMonth) return;
+
+    setIsLoading(true);
+    setError('');
+    try {
+      const response = await fetch(`/api/transactions?month=${currentMonth}`);
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to fetch transactions');
+      }
+      const data = await response.json();
+      setTransactions(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load transactions');
+      console.error(err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Use this in useEffect
+  useEffect(() => {
+    fetchTransactions();
+  }, [currentMonth]);
 
   const handleCancel = () => {
     setFormData(defaultFormData);
@@ -128,55 +202,118 @@ const FinancialTracker: React.FC = () => {
     setIsEditing(false);
   };
 
-  // Rest of the existing functions...
+  const getRelevantCategories = (type: TransactionType) => {
+    switch (type) {
+      case 'salary':
+        return ['Monthly Salary', 'Bonus'];
+      case 'investment':
+        return ['Stock Dividends', 'Stock Sale Gains', 'Mutual Fund Returns', 'Interest Income'];
+      case 'other_income':
+        return ['Rental Income', 'Freelance Income', 'Others'];
+      case 'expense':
+        return categories.filter(cat =>
+          !['Monthly Salary', 'Bonus', 'Stock Dividends', 'Stock Sale Gains',
+            'Mutual Fund Returns', 'Interest Income', 'Rental Income', 'Freelance Income'
+          ].includes(cat)
+        );
+      default:
+        return categories;
+    }
+  };
+
   const getMonthlyStats = () => {
-    const monthlyTransactions = transactions.filter(t => t.date.startsWith(currentMonth));
+    const monthlyTransactions = transactions.filter(t => {
+      const transactionMonth = new Date(t.date).toISOString().slice(0, 7);
+      return transactionMonth === currentMonth;
+    });
+
     return {
       totalExpenses: monthlyTransactions
         .filter(t => t.type === 'expense')
         .reduce((sum, t) => sum + Number(t.amount), 0),
-      totalLent: monthlyTransactions
-        .filter(t => t.type === 'lent')
+      totalSalary: monthlyTransactions
+        .filter(t => t.type === 'salary')
         .reduce((sum, t) => sum + Number(t.amount), 0),
-      totalReceived: monthlyTransactions
-        .filter(t => t.type === 'received')
+      totalInvestmentIncome: monthlyTransactions
+        .filter(t => t.type === 'investment')
+        .reduce((sum, t) => sum + Number(t.amount), 0),
+      totalOtherIncome: monthlyTransactions
+        .filter(t => t.type === 'other_income')
         .reduce((sum, t) => sum + Number(t.amount), 0)
     };
   };
 
-  const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
+  // Handle form submission for new transaction
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const newTransaction: Transaction = {
-      id: Date.now(),
-      ...formData,
-      timestamp: new Date().toISOString()
-    };
-    setTransactions(prev => [...prev, newTransaction]);
-    setFormData(defaultFormData);
+    setIsLoading(true);
+    setError('');
+
+    try {
+      const formattedData = {
+        ...formData,
+        date: formData.date,
+        amount: parseFloat(formData.amount)
+      };
+
+      const response = await fetch('/api/transactions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(formattedData),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to create transaction');
+      }
+
+      // After successful creation, fetch fresh data
+      const newTransaction = await response.json();
+      await fetchTransactions(); // We'll create this function
+      setFormData(defaultFormData);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create transaction');
+      console.error(err);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const stats = getMonthlyStats();
+
   return (
     <div className="max-w-4xl mx-auto p-6 bg-white rounded-lg shadow">
+      {error && (
+        <div className="mb-4 p-4 bg-red-50 text-red-600 rounded-lg">
+          {error}
+        </div>
+      )}
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-center">Financial Tracker</h1>
       </div>
 
       {/* Monthly Summary */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         <div className="p-4 bg-blue-50 rounded-lg">
           <h3 className="font-semibold">Monthly Expenses</h3>
           <p className="text-xl">₹{stats.totalExpenses.toFixed(2)}</p>
         </div>
         <div className="p-4 bg-green-50 rounded-lg">
-          <h3 className="font-semibold">Money Lent</h3>
-          <p className="text-xl">₹{stats.totalLent.toFixed(2)}</p>
+          <h3 className="font-semibold">Salary Income</h3>
+          <p className="text-xl">₹{stats.totalSalary.toFixed(2)}</p>
         </div>
         <div className="p-4 bg-purple-50 rounded-lg">
-          <h3 className="font-semibold">Money Received</h3>
-          <p className="text-xl">₹{stats.totalReceived.toFixed(2)}</p>
+          <h3 className="font-semibold">Investment Income</h3>
+          <p className="text-xl">₹{stats.totalInvestmentIncome.toFixed(2)}</p>
+        </div>
+        <div className="p-4 bg-yellow-50 rounded-lg">
+          <h3 className="font-semibold">Other Income</h3>
+          <p className="text-xl">₹{stats.totalOtherIncome.toFixed(2)}</p>
         </div>
       </div>
+
 
       {/* Monthly selector */}
       <div className="mb-6">
@@ -186,6 +323,7 @@ const FinancialTracker: React.FC = () => {
           value={currentMonth}
           onChange={(e) => setCurrentMonth(e.target.value)}
           className="p-2 border rounded-lg"
+          max={new Date().toISOString().slice(0, 7)} // Limit to current month
         />
       </div>
 
@@ -230,7 +368,7 @@ const FinancialTracker: React.FC = () => {
               required
             >
               <option value="">Select Category</option>
-              {categories.map(cat => (
+              {getRelevantCategories(formData.type as TransactionType).map(cat => (
                 <option key={cat} value={cat}>{cat}</option>
               ))}
             </select>
@@ -365,11 +503,15 @@ const FinancialTracker: React.FC = () => {
             </thead>
             <tbody>
               {transactions
-                .filter(t => t.date.startsWith(currentMonth))
+                .filter(t => {
+                  // Convert the ISO date string to YYYY-MM format for comparison
+                  const transactionMonth = new Date(t.date).toISOString().slice(0, 7);
+                  return transactionMonth === currentMonth;
+                })
                 .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
                 .map(transaction => (
                   <tr key={transaction.id} className={editingTransaction?.id === transaction.id ? 'bg-blue-50' : ''}>
-                    <td className="p-2 border">{transaction.date}</td>
+                    <td className="p-2 border">{new Date(transaction.date).toLocaleDateString()}</td>
                     <td className="p-2 border">{transactionTypes.find(t => t.id === transaction.type)?.name}</td>
                     <td className="p-2 border">{transaction.category}</td>
                     <td className="p-2 border">₹{Number(transaction.amount).toFixed(2)}</td>
